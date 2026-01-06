@@ -168,7 +168,6 @@ async function loadWeatherWithCoords(lat, lon){
   document.getElementById("sunrise").textContent = data.daily.sunrise[0];
   document.getElementById("sunset").textContent = data.daily.sunset[0];
 
-  // AQI
   let pm25=10, pm10=20, o3=0, no2=0, so2=0, co=0, nh3=0;
   if(aqData){
     pm25 = aqData.hourly.pm2_5[0] || pm25;
@@ -208,17 +207,23 @@ function detectLocation(){
   navigator.geolocation.getCurrentPosition(async pos=>{
     const lat = pos.coords.latitude;
     const lon = pos.coords.longitude;
-    // Reverse geocoding for city name
     const r = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&count=1`);
     const j = await r.json();
     const cityName = j.results ? j.results[0].name : "Your Location";
     document.getElementById("city").value = cityName;
     loadWeatherWithCoords(lat, lon);
-  }, ()=>alert("Location access denied."));
+  }, ()=>{
+    alert("Location access denied. Loading default city.");
+    document.getElementById("city").value = "New Delhi"; // fallback city
+    loadWeather();
+  }, { enableHighAccuracy:true });
 }
+
+// Auto-load on page load
+window.addEventListener("load", detectLocation);
 
 if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js"); }
 </script>
 
 </body>
-</html>
+    </html>
