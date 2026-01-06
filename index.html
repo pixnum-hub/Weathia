@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Climix</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000000">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system}
+body{background:#000;color:#fff;display:flex;justify-content:center;}
+body.oled{background:#000;color:#fff;}
+:root{--aqi-tint:rgba(0,0,0,0);}
+.app-frame{
+  width:100%;
+  max-width:420px;
+  padding:16px;
+  background:linear-gradient(180deg,var(--aqi-tint),rgba(0,0,0,0.92));
+}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+.toggle{width:38px;height:38px;border-radius:50%;border:none;background:#111;color:#fff;font-size:18px;cursor:pointer;}
+.card{
+  background:rgba(255,255,255,0.06);
+  backdrop-filter:blur(14px);
+  border-radius:18px;
+  padding:18px;
+  margin-bottom:14px;
+}
+.card h2{font-size:1.45rem;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.12);padding-bottom:6px;}
+.main-temp{font-size:3.6rem;font-weight:800;text-align:center;}
+.sub-temp{text-align:center;font-size:1.5rem;}
+input,button{height:46px;border-radius:14px;border:none;font-size:1.05rem;}
+input{width:55%;padding:0 10px;margin-right:4px}
+button{width:auto;padding:0 10px;background:#222;color:#fff;cursor:pointer;margin-right:4px;}
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+.list .row{display:flex;justify-content:space-between;padding:8px 10px;background:rgba(255,255,255,0.06);border-radius:10px;margin-bottom:6px;}
+.aqi-big{font-size:2.6rem;font-weight:800;text-align:center;}
+span{font-weight:600;}
+</style>
+</head>
+<body>
+<div class="app-frame">
+
+<header>
+  <h1>Climix</h1>
+  <button class="toggle" onclick="toggleDark()">🌙</button>
+</header>
+
+<div class="card">
+  <input id="city" placeholder="Enter city">
+  <button onclick="loadWeather()">Search</button>
+  <button onclick="detectLocation()">📍</button>
+</div>
+
+<div class="card">
+  <div id="temp" class="main-temp">--°C</div>
+  <div id="feel" class="sub-temp">Feels like --°C</div>
+</div>
+
+<div class="card">
+<h2>Location Conditions</h2>
+<div class="grid-2">
+  <div>Humidity <span id="humidity">--</span></div>
+  <div>Pressure <span id="pressure">--</span></div>
+  <div>Wind <span id="wind">--</span></div>
+  <div>Direction <span id="windDir">--</span></div>
+  <div>Precip <span id="precip">--</span></div>
+  <div>Cloud <span id="cloud">--</span></div>
+  <div>Visibility <span id="vis">--</span></div>
+  <div>UV <span id="uv">--</span></div>
+  <div>Dew <span id="dew">--</span></div>
+  <div>Sunrise <span id="sunrise">--</span></div>
+  <div>Sunset <span id="sunset">--</span></div>
+</div>
+</div>
+
+<div class="card">
+<h2>AQI Details</h2>
+<div class="aqi-big" id="aqiValue">AQI --</div>
+<div id="aqiCategory" style="text-align:center">--</div>
+<div id="aqiHealth" style="text-align:center;margin-bottom:10px">--</div>
+<div class="grid-2">
+  <div>PM2.5 <span id="pm25">--</span></div>
+  <div>PM10 <span id="pm10">--</span></div>
+  <div>O₃ <span id="o3">--</span></div>
+  <div>NO₂ <span id="no2">--</span></div>
+  <div>SO₂ <span id="so2">--</span></div>
+  <div>CO <span id="co">--</span></div>
+  <div>NH₃ <span id="nh3">--</span></div>
+</div>
+</div>
+
+<div class="card">
+<h2>Next 24 Hours</h2>
+<div id="hourly" class="list"></div>
+</div>
+
+<div class="card">
+<h2>7-Day Forecast</h2>
+<div id="daily" class="list"></div>
+</div>
+
+<div class="card" style="text-align:center;font-size:0.9rem">
+© Manik Roy 2025. All Rights Reserved.
+</div>
+
+</div>
+
+<script>
+function toggleDark(){ document.body.classList.toggle("oled"); }
+function applyAQITint(aqi){
+  let t="rgba(0,0,0,0)";
+  if(aqi<=50) t="rgba(0,180,90,.12)";
+  else if(aqi<=100) t="rgba(255,200,0,.14)";
+  else if(aqi<=150) t="rgba(255,140,0,.16)";
+  else if(aqi<=200) t="rgba(255,80,80,.18)";
+  else t="rgba(180,0,0,.22)";
+  document.documentElement.style.setProperty("--aqi-tint", t);
+}
+
+async function getCoords(city){
+  const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1`);
+  const j = await r.json();
+  return j.results ? j.results[0] : null;
+}
+
+async function getWeather(lat, lon){
+  const r = await fetch(
+    `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`+
+    `&current_weather=true&hourly=temperature_2m,precipitation,cloudcover,wind_speed_10m,wind_direction_10m`+
+    `&daily=temperature_2m_min,temperature_2m_max,sunrise,sunset,time&timezone=auto`
+  );
+  return r.json();
+}
+
+async function getAirQuality(lat, lon){
+  try{
+    const r = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&hourly=pm2_5,pm10,o3,no2,so2,co,nh3`);
+    return r.json();
+  }catch(e){ return null; }
+}
+
+function round(v){ return Math.round(v); }
+
+async function loadWeather(){
+  const city = document.getElementById("city").value.trim();
+  if(!city) return alert("Please enter a city");
+  const loc = await getCoords(city);
+  if(!loc) return alert("City not found");
+  await loadWeatherWithCoords(loc.latitude, loc.longitude);
+}
+
+async function loadWeatherWithCoords(lat, lon){
+  const data = await getWeather(lat, lon);
+  const aqData = await getAirQuality(lat, lon);
+
+  const cw = data.current_weather;
+  document.getElementById("temp").textContent = round(cw.temperature) + "°C";
+  document.getElementById("feel").textContent = "Feels like " + round(cw.temperature) + "°C";
+  document.getElementById("humidity").textContent = "--";
+  document.getElementById("pressure").textContent = "--";
+  document.getElementById("wind").textContent = cw.windspeed + " km/h";
+  document.getElementById("windDir").textContent = cw.winddirection + "°";
+  document.getElementById("precip").textContent = data.hourly.precipitation[0] || "--";
+  document.getElementById("cloud").textContent = data.hourly.cloudcover[0] || "--";
+  document.getElementById("uv").textContent = "--";
+  document.getElementById("dew").textContent = "--";
+  document.getElementById("sunrise").textContent = data.daily.sunrise[0];
+  document.getElementById("sunset").textContent = data.daily.sunset[0];
+
+  // AQI
+  let pm25=10, pm10=20, o3=0, no2=0, so2=0, co=0, nh3=0;
+  if(aqData){
+    pm25 = aqData.hourly.pm2_5[0] || pm25;
+    pm10 = aqData.hourly.pm10[0] || pm10;
+    o3 = aqData.hourly.o3[0] || 0;
+    no2 = aqData.hourly.no2[0] || 0;
+    so2 = aqData.hourly.so2[0] || 0;
+    co = aqData.hourly.co[0] || 0;
+    nh3 = aqData.hourly.nh3[0] || 0;
+  }
+  const aqi = round(pm25*2);
+  document.getElementById("aqiValue").textContent = "AQI " + aqi;
+  document.getElementById("aqiCategory").textContent = aqi<=50?"Good":aqi<=100?"Moderate":aqi<=150?"Unhealthy":"Hazardous";
+  document.getElementById("aqiHealth").textContent = aqi<=100?"Normal outdoor activity":"Limit prolonged exposure";
+  document.getElementById("pm25").textContent = pm25;
+  document.getElementById("pm10").textContent = pm10;
+  document.getElementById("o3").textContent = o3;
+  document.getElementById("no2").textContent = no2;
+  document.getElementById("so2").textContent = so2;
+  document.getElementById("co").textContent = co;
+  document.getElementById("nh3").textContent = nh3;
+  applyAQITint(aqi);
+
+  // Hourly
+  let hHTML="";
+  data.hourly.temperature_2m.slice(0,24).forEach((t,i)=> hHTML+=`<div class="row"><span>${i}:00</span><span>${t}°C</span></div>`);
+  document.getElementById("hourly").innerHTML = hHTML;
+
+  // Daily
+  let dHTML="";
+  data.daily.time.forEach((date,i)=> dHTML+=`<div class="row"><span>${date}</span><span>${data.daily.temperature_2m_min[i]}° / ${data.daily.temperature_2m_max[i]}°</span></div>`);
+  document.getElementById("daily").innerHTML = dHTML;
+}
+
+function detectLocation(){
+  if(!navigator.geolocation) return alert("Geolocation not supported.");
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    // Reverse geocoding for city name
+    const r = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&count=1`);
+    const j = await r.json();
+    const cityName = j.results ? j.results[0].name : "Your Location";
+    document.getElementById("city").value = cityName;
+    loadWeatherWithCoords(lat, lon);
+  }, ()=>alert("Location access denied."));
+}
+
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js"); }
+</script>
+
+</body>
+</html>
